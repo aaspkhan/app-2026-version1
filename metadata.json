@@ -1,0 +1,5 @@
+{
+  "name": "GlucoGuard AI Watch Companion",
+  "description": "A smartwatch companion app that tracks heart rate and blood pressure via Bluetooth and estimates diabetes risk using Gemini AI.",
+  "requestFramePermissions": []
+}
