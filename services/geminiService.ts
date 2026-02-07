@@ -1,9 +1,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { HealthMetrics, RiskAnalysisResult } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 export async function analyzeDiabetesRisk(metrics: HealthMetrics, age: number, weight: number): Promise<RiskAnalysisResult> {
+  // Initialize inside the function to ensure process.env is ready and clean
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const model = "gemini-3-flash-preview";
   
   const prompt = `
