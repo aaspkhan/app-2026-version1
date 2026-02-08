@@ -18,6 +18,5 @@ export const DEFAULT_METRICS = {
   heartRate: 72,
   systolicBP: 120,
   diastolicBP: 80,
-  steps: 5432,
   lastUpdated: new Date(),
 };

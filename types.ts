@@ -2,7 +2,6 @@ export interface HealthMetrics {
   heartRate: number;
   systolicBP: number;
   diastolicBP: number;
-  steps: number;
   lastUpdated: Date;
 }
 

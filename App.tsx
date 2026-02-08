@@ -56,7 +56,7 @@ export default function App() {
     }));
     setBpmHistory(initialHistory);
 
-    // Simulate Step counting and BP fluctuations for demo purposes (since Web BLE BP is rare)
+    // Simulate BP fluctuations for demo purposes
     const interval = setInterval(() => {
         setMetrics(prev => {
            // Simulate slight BP fluctuation
@@ -64,7 +64,6 @@ export default function App() {
            const diaChange = Math.floor(Math.random() * 3) - 1;
            return {
                ...prev,
-               steps: prev.steps + Math.floor(Math.random() * 2),
                systolicBP: Math.max(90, Math.min(180, prev.systolicBP + (Math.random() > 0.8 ? sysChange : 0))),
                diastolicBP: Math.max(60, Math.min(110, prev.diastolicBP + (Math.random() > 0.8 ? diaChange : 0))),
            }
@@ -154,7 +153,12 @@ export default function App() {
           handleNewHeartRate(hr);
       } catch (err) {
           console.error("Manual scan timed out or failed", err);
-          // Optional: Show a toast error here
+          // Alert the user if timeout happens
+          setConnectionState(prev => ({
+              ...prev,
+              error: "Scan Timed Out: Please tap your watch screen to wake it up."
+          }));
+          setTimeout(() => setConnectionState(prev => ({ ...prev, error: null })), 5000);
       } finally {
           setScanningHeartRate(false);
       }
@@ -250,7 +254,7 @@ export default function App() {
         )}
 
         {/* Metrics Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <MetricCard 
             title="Heart Rate" 
             value={metrics.heartRate} 
@@ -268,14 +272,6 @@ export default function App() {
             icon={Activity} 
             colorClass="text-primary" 
             trend={metrics.systolicBP > 130 ? "Monitor Closely" : "Optimal"}
-          />
-          <MetricCard 
-            title="Steps Today" 
-            value={metrics.steps.toLocaleString()} 
-            unit="steps" 
-            icon={Footprints} 
-            colorClass="text-emerald-500" 
-            trend="45% of Goal"
           />
         </div>
 

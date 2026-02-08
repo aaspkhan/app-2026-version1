@@ -12,7 +12,6 @@ export async function analyzeDiabetesRisk(metrics: HealthMetrics, age: number, w
     Current Metrics:
     - Resting Heart Rate: ${metrics.heartRate} bpm
     - Blood Pressure: ${metrics.systolicBP}/${metrics.diastolicBP} mmHg
-    - Daily Average Steps: ${metrics.steps}
 
     Provide a risk assessment based on general medical guidelines (e.g., ADA, AHA). 
     Note: This is for informational purposes only, not a medical diagnosis.

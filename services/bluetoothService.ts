@@ -193,9 +193,26 @@ export class BluetoothService {
   }
 
   // New method to allow "Manual Scan" from UI
-  public requestHeartRate(): Promise<number> {
-      if (!this.device || !this.device.gatt?.connected) {
+  // Updated to try and force a reading by toggling notifications
+  public async requestHeartRate(): Promise<number> {
+      if (!this.device || !this.device.gatt?.connected || !this.server) {
           return Promise.reject(new Error("Device not connected"));
+      }
+
+      // Try to re-subscribe to force the watch to wake up and send data
+      try {
+         console.log("Pinging Heart Rate Service to force reading...");
+         const service = await this.server.getPrimaryService(BLE_SERVICES.HEART_RATE);
+         const characteristic = await service.getCharacteristic(BLE_CHARACTERISTICS.HEART_RATE_MEASUREMENT);
+         
+         // Toggle notifications off and on. 
+         // This sequence often wakes up sensors on devices that sleep aggressively.
+         await characteristic.stopNotifications();
+         await new Promise(r => setTimeout(r, 200)); 
+         await characteristic.startNotifications();
+         characteristic.addEventListener('characteristicvaluechanged', this.handleHeartRateValueChanged.bind(this));
+      } catch (e) {
+          console.warn("Could not toggle notifications, waiting for passive update.", e);
       }
 
       return new Promise((resolve, reject) => {
@@ -204,8 +221,8 @@ export class BluetoothService {
               // Remove the resolver from the list if it times out
               const index = this.pendingHeartRateRequests.indexOf(resolver);
               if (index > -1) this.pendingHeartRateRequests.splice(index, 1);
-              reject(new Error("Timeout: Watch did not send data."));
-          }, 5000); // 5 second timeout
+              reject(new Error("Timeout: Watch did not send data. Please ensure watch screen is on."));
+          }, 8000); // Increased to 8 seconds
 
           const resolver = (hr: number) => {
               clearTimeout(timer);
