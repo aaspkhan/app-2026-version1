@@ -45,22 +45,25 @@ export async function analyzeDiabetesRisk(metrics: HealthMetrics, age: number, w
       }
     });
 
-    return JSON.parse(response.text!) as RiskAnalysisResult;
+    if (!response.text) throw new Error("Empty response from AI");
+    return JSON.parse(response.text) as RiskAnalysisResult;
 
   } catch (error) {
     console.error("Analysis Failed:", error);
+    // Return a fallback/error object for risk analysis to prevent app crash, 
+    // but log the error clearly.
     return {
       riskLevel: "Moderate",
       score: 50,
-      summary: "Simulation (Error): Monitor waist circumference and sugar intake.",
-      recommendations: ["Reduce processed carbs", "Increase daily steps", "Measure HRV daily"]
+      summary: "Could not connect to AI service. Please check your internet connection or API Key.",
+      recommendations: ["Monitor manually", "Consult a doctor"]
     };
   }
 }
 
 export async function analyzeFood(base64Image: string): Promise<FoodAnalysisResult> {
     const apiKey = process.env.API_KEY;
-    if (!apiKey) throw new Error("Missing API Key");
+    if (!apiKey) throw new Error("API Key is missing. Please check your settings.");
 
     const ai = new GoogleGenAI({ apiKey });
     
@@ -91,9 +94,10 @@ export async function analyzeFood(base64Image: string): Promise<FoodAnalysisResu
             }
         });
 
-        return JSON.parse(response.text!) as FoodAnalysisResult;
-    } catch (e) {
-        console.error(e);
-        throw new Error("Failed to analyze food image.");
+        if (!response.text) throw new Error("No response generated.");
+        return JSON.parse(response.text) as FoodAnalysisResult;
+    } catch (e: any) {
+        console.error("Food Analysis Error:", e);
+        throw new Error(e.message || "Failed to analyze food image.");
     }
 }
