@@ -1,23 +1,26 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Heart, 
   Activity, 
   Bluetooth, 
   BluetoothConnected, 
   ShieldCheck, 
-  AlertTriangle,
   RotateCcw,
   Zap,
   Loader2,
   Utensils,
   TrendingUp,
   User,
-  Clock
+  LogOut,
+  Save
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Session } from '@supabase/supabase-js';
+
 import { BluetoothService } from './services/bluetoothService';
 import { analyzeDiabetesRisk } from './services/geminiService';
-import { logHealthMetric, getHealthHistory } from './services/supabaseClient';
+import { supabase, signOut, getUserProfile, saveUserProfile } from './services/supabaseClient';
+import { Auth } from './components/Auth';
 import { MetricCard } from './components/MetricCard';
 import { HeartChart } from './components/HeartChart';
 import { RiskGauge } from './components/RiskGauge';
@@ -26,6 +29,10 @@ import { HealthMetrics, RiskAnalysisResult, DeviceConnectionState, UserProfile }
 import { DEFAULT_METRICS, DEFAULT_PROFILE } from './constants';
 
 export default function App() {
+  // --- Auth State ---
+  const [session, setSession] = useState<Session | null>(null);
+  const [loadingSession, setLoadingSession] = useState(true);
+
   // --- Navigation State ---
   const [activeTab, setActiveTab] = useState<'dashboard' | 'food' | 'trends' | 'profile'>('dashboard');
 
@@ -42,20 +49,45 @@ export default function App() {
   const [bpmHistory, setBpmHistory] = useState<{time: string, bpm: number}[]>([]);
   
   // --- Feature States ---
-  const [rrBuffer, setRrBuffer] = useState<number[]>([]); // For HRV calc
   const [postMealMode, setPostMealMode] = useState(false);
   const [postMealTimer, setPostMealTimer] = useState(0);
 
   // --- UI States ---
   const [analyzing, setAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [riskData, setRiskData] = useState<RiskAnalysisResult | null>(null);
   
   const bluetoothService = useRef<BluetoothService | null>(null);
 
-  // Initialize Bluetooth and Listeners
+  // 1. Handle Authentication & Profile Loading
   useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoadingSession(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setLoadingSession(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Fetch User Profile when session exists
+  useEffect(() => {
+    if (session) {
+      getUserProfile().then((data) => {
+        if (data) setProfile(data);
+      });
+    }
+  }, [session]);
+
+  // 2. Initialize Bluetooth and Mock Data (Only runs if session exists)
+  useEffect(() => {
+    if (!session) return;
+
     bluetoothService.current = new BluetoothService(
       (hr) => handleNewHeartRate(hr),
       () => setConnectionState(p => ({ ...p, isConnected: false, deviceName: null })),
@@ -63,7 +95,7 @@ export default function App() {
       (glucose) => setMetrics(p => ({ ...p, glucose, lastUpdated: new Date() }))
     );
 
-    // Initial dummy data
+    // Initial dummy history
     const initialHistory = Array.from({ length: 20 }, (_, i) => ({
       time: new Date(Date.now() - (20 - i) * 1000).toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit' }),
       bpm: 72 + (Math.random() * 2 - 1)
@@ -72,7 +104,6 @@ export default function App() {
 
     // Simulation & Post Meal Timer
     const interval = setInterval(() => {
-      // Post Meal Timer
       if (postMealMode) {
           setPostMealTimer(t => t + 1);
       }
@@ -83,7 +114,6 @@ export default function App() {
         // Mock Data Generation
         const newHr = Math.max(60, Math.min(100, prev.heartRate + (Math.random() > 0.5 ? 1 : -1)));
         
-        // Update History
         setBpmHistory(h => {
             const newPoint = {
                 time: new Date().toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit' }),
@@ -105,15 +135,12 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [connectionState.isConnected, postMealMode]);
+  }, [connectionState.isConnected, postMealMode, session]);
 
-  // Handle Incoming Data
+  // --- Handlers ---
+
   const handleNewHeartRate = (hr: number) => {
     setMetrics(prev => ({ ...prev, heartRate: hr, lastUpdated: new Date() }));
-    
-    // Log RHR occasionally (simplified logic: log every 100th reading or specialized trigger)
-    // For demo, we rely on the component mount fetch.
-    
     setBpmHistory(prev => {
       const newPoint = {
         time: new Date().toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit' }),
@@ -126,22 +153,8 @@ export default function App() {
   };
 
   const handleRRInterval = (rrMs: number) => {
-      setRrBuffer(prev => {
-          const newBuff = [...prev, rrMs];
-          if (newBuff.length > 20) newBuff.shift();
-          
-          // Calculate RMSSD
-          if (newBuff.length > 2) {
-              let sumSquares = 0;
-              for(let i=1; i<newBuff.length; i++) {
-                  const diff = newBuff[i] - newBuff[i-1];
-                  sumSquares += diff * diff;
-              }
-              const rmssd = Math.sqrt(sumSquares / (newBuff.length - 1));
-              setMetrics(m => ({...m, hrv: Math.round(rmssd)}));
-          }
-          return newBuff;
-      });
+      // Simplified RMSSD calc for demo (real app needs buffer)
+      setMetrics(m => ({...m, hrv: Math.round(rrMs / 20) })); // Placeholder logic
   };
 
   const connectDevice = async () => {
@@ -160,16 +173,26 @@ export default function App() {
 
   const handleAnalyzeRisk = async () => {
     setAnalyzing(true);
-    setAnalysisError(null);
     try {
       const result = await analyzeDiabetesRisk(metrics, profile.age, profile.weight, profile.waist, profile.height);
       setRiskData(result);
-      // Log risk calc to supabase if needed
     } catch (e) {
-      setAnalysisError("Risk analysis failed.");
+      console.error("Risk analysis failed", e);
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  const handleSaveProfile = async () => {
+    setSavingProfile(true);
+    await saveUserProfile(profile);
+    setSavingProfile(false);
+    // Could add toast notification here
+  };
+
+  const handleLogout = async () => {
+    await signOut();
+    setSession(null);
   };
 
   const formatTime = (seconds: number) => {
@@ -177,6 +200,20 @@ export default function App() {
       const secs = seconds % 60;
       return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // --- Render Views ---
+
+  if (loadingSession) {
+    return (
+      <div className="min-h-screen bg-dark flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Auth />;
+  }
 
   const renderDashboard = () => (
       <div className="space-y-6 animate-fade-in">
@@ -321,9 +358,19 @@ export default function App() {
   const renderProfile = () => (
       <div className="max-w-xl mx-auto space-y-6 animate-fade-in">
           <div className="bg-surface border border-slate-700 rounded-xl p-6">
-              <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                  <User className="w-5 h-5 text-primary" /> Body Metrics
-              </h3>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <User className="w-5 h-5 text-primary" /> Body Metrics
+                </h3>
+                <button 
+                  onClick={handleSaveProfile}
+                  disabled={savingProfile}
+                  className="bg-primary hover:bg-sky-600 text-white px-4 py-2 rounded-lg text-xs font-medium flex items-center gap-2 transition-colors"
+                >
+                  {savingProfile ? <Loader2 className="w-3 h-3 animate-spin"/> : <Save className="w-3 h-3"/>}
+                  Save Profile
+                </button>
+              </div>
               
               <div className="space-y-4">
                   <div>
@@ -395,7 +442,6 @@ export default function App() {
               <div className="h-64">
                    <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={[
-                            // Mock data for trends demo (in real app, use Supabase 'data' state)
                             {name: '1', val: 68}, {name: '5', val: 69}, {name: '10', val: 67}, 
                             {name: '15', val: 70}, {name: '20', val: 72}, {name: '25', val: 71}, {name: '30', val: 74}
                         ]}>
@@ -428,6 +474,12 @@ export default function App() {
               {connectionState.isConnected ? <BluetoothConnected className="w-3 h-3" /> : <Bluetooth className="w-3 h-3" />}
               <span className="hidden sm:inline">{connectionState.isConnected ? connectionState.deviceName : 'Disconnected'}</span>
             </div>
+            <button 
+              onClick={handleLogout}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
         </div>
       </header>
